@@ -215,7 +215,7 @@ export const deleteEmployee = async (req: Request, res: Response) => {
 
 export const addCertification = async (req: Request, res: Response) => {
   try {
-    const { employeeId, name, expiryDate } = req.body;
+    const { employeeId, name, expiryDate, validityType, validYears } = req.body;
 
     if (!employeeId || !name || !expiryDate) {
       return res.status(400).json({ error: 'Employee ID, certification name, and expiry date are required' });
@@ -236,12 +236,31 @@ export const addCertification = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Invalid expiry date format' });
     }
 
+    // Validate validity type
+    const validValidityTypes = ['LIFETIME', 'FIXED_YEARS', 'CUSTOM_DATE'];
+    if (validityType && !validValidityTypes.includes(validityType)) {
+      return res.status(400).json({ error: 'Invalid validity type' });
+    }
+
+    // Validate validYears for FIXED_YEARS type
+    if (validityType === 'FIXED_YEARS' && (!validYears || validYears < 1 || validYears > 50)) {
+      return res.status(400).json({ error: 'Valid years must be between 1 and 50 for FIXED_YEARS type' });
+    }
+
+    const certificationData: any = {
+      employeeId,
+      name: name.trim(),
+      expiryDate: parsedDate,
+      validityType: validityType || 'CUSTOM_DATE'
+    };
+
+    // Add validYears if provided and type is FIXED_YEARS
+    if (validityType === 'FIXED_YEARS' && validYears) {
+      certificationData.validYears = validYears;
+    }
+
     const certification = await prisma.certification.create({
-      data: {
-        employeeId,
-        name: name.trim(),
-        expiryDate: parsedDate
-      },
+      data: certificationData,
       include: {
         employee: true
       }
@@ -257,10 +276,10 @@ export const addCertification = async (req: Request, res: Response) => {
 export const updateCertification = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { name, expiryDate } = req.body;
+    const { name, expiryDate, validityType, validYears } = req.body;
 
-    if (!name && !expiryDate) {
-      return res.status(400).json({ error: 'At least one field (name or expiryDate) is required' });
+    if (!name && !expiryDate && !validityType && validYears === undefined) {
+      return res.status(400).json({ error: 'At least one field (name, expiryDate, validityType, or validYears) is required' });
     }
 
     const updateData: any = {};
@@ -275,6 +294,23 @@ export const updateCertification = async (req: Request, res: Response) => {
         return res.status(400).json({ error: 'Invalid date format' });
       }
       updateData.expiryDate = parsedDate;
+    }
+
+    if (validityType) {
+      // Validate validity type
+      const validValidityTypes = ['LIFETIME', 'FIXED_YEARS', 'CUSTOM_DATE'];
+      if (!validValidityTypes.includes(validityType)) {
+        return res.status(400).json({ error: 'Invalid validity type' });
+      }
+      updateData.validityType = validityType;
+    }
+
+    if (validYears !== undefined) {
+      // Validate validYears for FIXED_YEARS type
+      if (validityType === 'FIXED_YEARS' && (validYears < 1 || validYears > 50)) {
+        return res.status(400).json({ error: 'Valid years must be between 1 and 50 for FIXED_YEARS type' });
+      }
+      updateData.validYears = validYears;
     }
 
     const certification = await prisma.certification.update({

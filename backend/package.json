@@ -9,7 +9,10 @@
     "start": "node dist/server.js",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
-    "db:migrate": "prisma migrate dev"
+    "db:migrate": "prisma migrate dev",
+    "setup:validity": "ts-node scripts/setup-certification-validity.ts",
+    "update:certifications": "ts-node scripts/update-certification-examples.ts",
+    "update:validity": "ts-node src/utils/updateCertificationValidity.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.7.1",
