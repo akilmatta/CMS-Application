@@ -25,7 +25,7 @@ model Certification {
   id           String       @id @default(uuid())
   employeeId   String
   name         String
-  expiryDate   DateTime
+  expiryDate   DateTime?
   validityType ValidityType @default(CUSTOM_DATE)
   validYears   Int?
   employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)

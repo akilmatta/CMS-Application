@@ -1,20 +1,9 @@
 import { useState, useEffect } from 'react'
-import axios from 'axios'
+import { employeeAPI, type Employee } from '../services/api'
 import EmployeeNavbar from '../components/EmployeeNavbar'
 import EmployeeCard from '../components/EmployeeCard'
 import SearchBar from '../components/SearchBar'
-
-interface Certification {
-  id: string
-  name: string
-  expiryDate: string
-}
-
-interface Employee {
-  id: string
-  name: string
-  certifications: Certification[]
-}
+import ValidityStatistics from '../components/ValidityStatistics'
 
 const EmployeeManagement = () => {
   const [employees, setEmployees] = useState<Employee[]>([])
@@ -31,13 +20,12 @@ const EmployeeManagement = () => {
   const fetchEmployees = async () => {
     setLoading(true)
     try {
-      console.log('Fetching employees from /api/employees')
-      const response = await axios.get('/api/employees')
-      console.log('Employees response:', response.data)
-      setEmployees(response.data)
+      console.log('Fetching employees from API')
+      const data = await employeeAPI.getEmployees()
+      console.log('Employees response:', data)
+      setEmployees(data)
     } catch (error: any) {
       console.error('Error fetching employees:', error)
-      console.error('Error response:', error.response?.data)
     } finally {
       setLoading(false)
     }
@@ -50,28 +38,21 @@ const EmployeeManagement = () => {
 
     console.log('Uploading file:', file.name, file.size, file.type)
     setUploading(true)
-    const formData = new FormData()
-    formData.append('file', file)
 
     try {
-      console.log('Sending request to /api/upload')
-      const response = await axios.post('/api/upload', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      })
-      console.log('Upload response:', response.data)
+      console.log('Sending request to upload API')
+      const response = await employeeAPI.uploadExcel(file)
+      console.log('Upload response:', response)
       
       // Show success message with upsert details
-      const message = response.data.created > 0 || response.data.updated > 0
-        ? `Successfully processed ${response.data.totalEmployees} employees (${response.data.created} created, ${response.data.updated} updated)`
-        : `Successfully processed ${response.data.totalEmployees} employees`
+      const message = response.created > 0 || response.updated > 0
+        ? `Successfully processed ${response.totalEmployees} employees (${response.created} created, ${response.updated} updated)`
+        : `Successfully processed ${response.totalEmployees} employees`
       alert(message)
       
       await fetchEmployees()
     } catch (error: any) {
       console.error('Error uploading file:', error)
-      console.error('Error response:', error.response?.data)
       alert(`Upload failed: ${error.response?.data?.error || error.message}`)
     } finally {
       setUploading(false)
@@ -83,7 +64,7 @@ const EmployeeManagement = () => {
     if (!newEmployeeName.trim()) return
 
     try {
-      await axios.post('/api/employees', { name: newEmployeeName })
+      await employeeAPI.createEmployee(newEmployeeName)
       setNewEmployeeName('')
       setShowAddEmployee(false)
       await fetchEmployees()
@@ -95,7 +76,7 @@ const EmployeeManagement = () => {
   // Handle employee deletion
   const handleDeleteEmployee = async (employeeId: string) => {
     try {
-      await axios.delete(`/api/employees/${employeeId}`)
+      await employeeAPI.deleteEmployee(employeeId)
       await fetchEmployees()
       // Clear search results if the deleted employee was in search results
       setSearchResults(prev => prev.filter(emp => emp.id !== employeeId))
@@ -147,6 +128,7 @@ const EmployeeManagement = () => {
     const today = new Date()
     const expiringSoon = employees.reduce((sum, emp) => {
       return sum + emp.certifications.filter(cert => {
+        if (!cert.expiryDate) return false // Skip lifetime certifications
         const expiry = new Date(cert.expiryDate)
         const daysUntilExpiry = Math.ceil((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
         return daysUntilExpiry <= 30 && daysUntilExpiry >= 0
@@ -155,6 +137,7 @@ const EmployeeManagement = () => {
     
     const expired = employees.reduce((sum, emp) => {
       return sum + emp.certifications.filter(cert => {
+        if (!cert.expiryDate) return false // Skip lifetime certifications
         const expiry = new Date(cert.expiryDate)
         return expiry < today
       }).length
@@ -445,6 +428,13 @@ const EmployeeManagement = () => {
                 )}
               </div>
             )}
+          </div>
+        )}
+
+        {activeTab === 'validity-stats' && (
+          <div className="space-y-4">
+            <h3 className="text-lg font-semibold">Validity Statistics</h3>
+            <ValidityStatistics />
           </div>
         )}
       </div>

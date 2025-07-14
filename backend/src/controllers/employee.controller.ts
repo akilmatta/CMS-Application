@@ -1,6 +1,15 @@
 import { Request, Response } from 'express';
 import prisma from '../prisma/client';
 import { parseExcelFile, NormalizedEmployee } from '../utils/parseExcel';
+import { 
+  calculateExpiryDate, 
+  getValidityType, 
+  getValidYears,
+  hasValidityRule,
+  getAllValidityRules,
+  getAllCertificationNames
+} from '../utils/certificationValidityMap';
+import { certificationValidityService } from '../utils/certificationValidityService';
 
 export const uploadExcel = async (req: Request, res: Response) => {
   try {
@@ -76,6 +85,11 @@ export const uploadExcel = async (req: Request, res: Response) => {
           console.log('Processing certification:', trimmedCertName, 'expires:', expiryDate);
           processedCertNames.add(trimmedCertName);
           
+          // Use validity map to determine expiry date and validity type
+          const calculatedExpiryDate = calculateExpiryDate(trimmedCertName, parsedExpiryDate);
+          const calculatedValidityType = getValidityType(trimmedCertName);
+          const calculatedValidYears = getValidYears(trimmedCertName);
+          
           // Check if certification already exists for this employee
           const existingCert = employee.certifications.find(
             (cert: any) => cert.name === trimmedCertName
@@ -86,7 +100,9 @@ export const uploadExcel = async (req: Request, res: Response) => {
             await prisma.certification.update({
               where: { id: existingCert.id },
               data: {
-                expiryDate: parsedExpiryDate
+                expiryDate: calculatedExpiryDate,
+                validityType: calculatedValidityType,
+                validYears: calculatedValidYears
               }
             });
           } else {
@@ -95,7 +111,9 @@ export const uploadExcel = async (req: Request, res: Response) => {
               data: {
                 employeeId: employee.id,
                 name: trimmedCertName,
-                expiryDate: parsedExpiryDate
+                expiryDate: calculatedExpiryDate,
+                validityType: calculatedValidityType,
+                validYears: calculatedValidYears
               }
             });
           }
@@ -217,8 +235,8 @@ export const addCertification = async (req: Request, res: Response) => {
   try {
     const { employeeId, name, expiryDate, validityType, validYears } = req.body;
 
-    if (!employeeId || !name || !expiryDate) {
-      return res.status(400).json({ error: 'Employee ID, certification name, and expiry date are required' });
+    if (!employeeId || !name) {
+      return res.status(400).json({ error: 'Employee ID and certification name are required' });
     }
 
     // Validate employee exists
@@ -230,13 +248,22 @@ export const addCertification = async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Employee not found' });
     }
 
-    // Validate date
-    const parsedDate = new Date(expiryDate);
-    if (isNaN(parsedDate.getTime())) {
-      return res.status(400).json({ error: 'Invalid expiry date format' });
+    const trimmedName = name.trim();
+    
+    // Use validity map to determine expiry date and validity type
+    const calculatedExpiryDate = calculateExpiryDate(trimmedName, expiryDate ? new Date(expiryDate) : undefined);
+    const calculatedValidityType = getValidityType(trimmedName);
+    const calculatedValidYears = getValidYears(trimmedName);
+
+    // Validate custom expiry date if provided
+    if (expiryDate && calculatedExpiryDate !== null) {
+      const parsedDate = new Date(expiryDate);
+      if (isNaN(parsedDate.getTime())) {
+        return res.status(400).json({ error: 'Invalid expiry date format' });
+      }
     }
 
-    // Validate validity type
+    // Validate validity type if provided
     const validValidityTypes = ['LIFETIME', 'FIXED_YEARS', 'CUSTOM_DATE'];
     if (validityType && !validValidityTypes.includes(validityType)) {
       return res.status(400).json({ error: 'Invalid validity type' });
@@ -249,14 +276,16 @@ export const addCertification = async (req: Request, res: Response) => {
 
     const certificationData: any = {
       employeeId,
-      name: name.trim(),
-      expiryDate: parsedDate,
-      validityType: validityType || 'CUSTOM_DATE'
+      name: trimmedName,
+      expiryDate: calculatedExpiryDate,
+      validityType: validityType || calculatedValidityType
     };
 
-    // Add validYears if provided and type is FIXED_YEARS
+    // Add validYears if provided or calculated
     if (validityType === 'FIXED_YEARS' && validYears) {
       certificationData.validYears = validYears;
+    } else if (calculatedValidYears) {
+      certificationData.validYears = calculatedValidYears;
     }
 
     const certification = await prisma.certification.create({
@@ -282,13 +311,37 @@ export const updateCertification = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'At least one field (name, expiryDate, validityType, or validYears) is required' });
     }
 
+    // Get current certification to check if name is changing
+    const currentCertification = await prisma.certification.findUnique({
+      where: { id }
+    });
+
+    if (!currentCertification) {
+      return res.status(404).json({ error: 'Certification not found' });
+    }
+
     const updateData: any = {};
     
     if (name) {
-      updateData.name = name.trim();
+      const trimmedName = name.trim();
+      updateData.name = trimmedName;
+      
+      // If name is changing, recalculate validity based on new name
+      if (trimmedName !== currentCertification.name) {
+        const calculatedExpiryDate = calculateExpiryDate(trimmedName, expiryDate ? new Date(expiryDate) : undefined);
+        const calculatedValidityType = getValidityType(trimmedName);
+        const calculatedValidYears = getValidYears(trimmedName);
+        
+        updateData.expiryDate = calculatedExpiryDate;
+        updateData.validityType = validityType || calculatedValidityType;
+        
+        if (calculatedValidYears) {
+          updateData.validYears = calculatedValidYears;
+        }
+      }
     }
     
-    if (expiryDate) {
+    if (expiryDate && !name) {
       const parsedDate = new Date(expiryDate);
       if (isNaN(parsedDate.getTime())) {
         return res.status(400).json({ error: 'Invalid date format' });
@@ -348,5 +401,107 @@ export const deleteCertification = async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Delete certification error:', error);
     res.status(500).json({ error: 'Failed to delete certification' });
+  }
+};
+
+export const getValidityMap = async (req: Request, res: Response) => {
+  try {
+    const validityRules = getAllValidityRules();
+    const certificationNames = getAllCertificationNames();
+    
+    res.json({
+      validityRules,
+      certificationNames,
+      totalCertifications: certificationNames.length
+    });
+  } catch (error) {
+    console.error('Get validity map error:', error);
+    res.status(500).json({ error: 'Failed to fetch validity map' });
+  }
+};
+
+export const getValidityStatistics = async (req: Request, res: Response) => {
+  try {
+    const statistics = await certificationValidityService.getValidityStatistics();
+    res.json(statistics);
+  } catch (error) {
+    console.error('Get validity statistics error:', error);
+    res.status(500).json({ error: 'Failed to fetch validity statistics' });
+  }
+};
+
+export const bulkUpdateEmployeeCertifications = async (req: Request, res: Response) => {
+  try {
+    const { employeeId, validityType, validYears } = req.body;
+
+    if (!employeeId || !validityType) {
+      return res.status(400).json({ error: 'Employee ID and validity type are required' });
+    }
+
+    const validValidityTypes = ['LIFETIME', 'FIXED_YEARS', 'CUSTOM_DATE'];
+    if (!validValidityTypes.includes(validityType)) {
+      return res.status(400).json({ error: 'Invalid validity type' });
+    }
+
+    if (validityType === 'FIXED_YEARS' && (!validYears || validYears < 1 || validYears > 50)) {
+      return res.status(400).json({ error: 'Valid years must be between 1 and 50 for FIXED_YEARS type' });
+    }
+
+    const result = await certificationValidityService.bulkUpdateEmployeeCertifications(
+      employeeId, 
+      validityType, 
+      validYears
+    );
+
+    res.json(result);
+  } catch (error) {
+    console.error('Bulk update employee certifications error:', error);
+    res.status(500).json({ error: 'Failed to bulk update employee certifications' });
+  }
+};
+
+export const bulkUpdateCertificationsByName = async (req: Request, res: Response) => {
+  try {
+    const { certificationName, validityType, validYears } = req.body;
+
+    if (!certificationName || !validityType) {
+      return res.status(400).json({ error: 'Certification name and validity type are required' });
+    }
+
+    const validValidityTypes = ['LIFETIME', 'FIXED_YEARS', 'CUSTOM_DATE'];
+    if (!validValidityTypes.includes(validityType)) {
+      return res.status(400).json({ error: 'Invalid validity type' });
+    }
+
+    if (validityType === 'FIXED_YEARS' && (!validYears || validYears < 1 || validYears > 50)) {
+      return res.status(400).json({ error: 'Valid years must be between 1 and 50 for FIXED_YEARS type' });
+    }
+
+    const result = await certificationValidityService.bulkUpdateCertificationsByName(
+      certificationName, 
+      validityType, 
+      validYears
+    );
+
+    res.json(result);
+  } catch (error) {
+    console.error('Bulk update certifications by name error:', error);
+    res.status(500).json({ error: 'Failed to bulk update certifications by name' });
+  }
+};
+
+export const validateCertificationName = async (req: Request, res: Response) => {
+  try {
+    const { name } = req.params;
+
+    if (!name) {
+      return res.status(400).json({ error: 'Certification name is required' });
+    }
+
+    const validation = certificationValidityService.validateCertificationName(name);
+    res.json(validation);
+  } catch (error) {
+    console.error('Validate certification name error:', error);
+    res.status(500).json({ error: 'Failed to validate certification name' });
   }
 }; 
