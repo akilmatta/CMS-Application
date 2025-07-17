@@ -1,5 +1,11 @@
 import React from 'react'
 
+interface SearchFilters {
+  searchIn: 'all' | 'employees' | 'certifications'
+  expiryStatus: 'all' | 'expired' | 'expiring-soon' | 'valid' | 'lifetime'
+  validityType: 'all' | 'LIFETIME' | 'FIXED_YEARS' | 'CUSTOM_DATE'
+}
+
 interface SearchBarProps {
   searchTerm: string
   onSearchChange: (e: React.ChangeEvent<HTMLInputElement>) => void
@@ -9,6 +15,10 @@ interface SearchBarProps {
   isSearching: boolean
   hasResults: boolean
   placeholder?: string
+  searchFilters?: SearchFilters
+  onFilterChange?: (filters: SearchFilters) => void
+  showFilters?: boolean
+  searchMode?: 'simple' | 'advanced'
 }
 
 const SearchBar = ({ 
@@ -19,11 +29,16 @@ const SearchBar = ({
   onKeyPress, 
   isSearching, 
   hasResults,
-  placeholder = "Search for an employee..."
+  placeholder = "Search...",
+  searchFilters,
+  onFilterChange,
+  showFilters = false,
+  searchMode = 'simple'
 }: SearchBarProps) => {
   return (
     <div className="bg-gray-50 p-4 rounded-lg">
-      <div className="flex items-center space-x-2">
+      {/* Search Input */}
+      <div className="flex items-center space-x-2 mb-4">
         <div className="flex-1">
           <input
             type="text"
@@ -50,6 +65,56 @@ const SearchBar = ({
           </button>
         )}
       </div>
+
+      {/* Search Filters - Only show for advanced mode */}
+      {showFilters && searchMode === 'advanced' && searchFilters && onFilterChange && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Search Scope Filter */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Search In:</label>
+            <select
+              value={searchFilters.searchIn}
+              onChange={(e) => onFilterChange({ ...searchFilters, searchIn: e.target.value as any })}
+              className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="all">All Fields</option>
+              <option value="employees">Employee Names Only</option>
+              <option value="certifications">Certifications Only</option>
+            </select>
+          </div>
+
+          {/* Expiry Status Filter */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Expiry Status:</label>
+            <select
+              value={searchFilters.expiryStatus}
+              onChange={(e) => onFilterChange({ ...searchFilters, expiryStatus: e.target.value as any })}
+              className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="all">All Statuses</option>
+              <option value="expired">Expired</option>
+              <option value="expiring-soon">Expiring Soon (≤30 days)</option>
+              <option value="valid">Valid</option>
+              <option value="lifetime">Lifetime</option>
+            </select>
+          </div>
+
+          {/* Validity Type Filter */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Validity Type:</label>
+            <select
+              value={searchFilters.validityType}
+              onChange={(e) => onFilterChange({ ...searchFilters, validityType: e.target.value as any })}
+              className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="all">All Types</option>
+              <option value="LIFETIME">Lifetime</option>
+              <option value="FIXED_YEARS">Fixed Years</option>
+              <option value="CUSTOM_DATE">Custom Date</option>
+            </select>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

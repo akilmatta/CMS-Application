@@ -74,7 +74,7 @@ export function getValidityRule(certificationName: string): ValidityRule | null 
 /**
  * Calculate expiry date based on certification name and validity rule
  * @param certificationName - The name of the certification
- * @param customExpiryDate - Optional custom expiry date (for CUSTOM_DATE type)
+ * @param customExpiryDate - Optional custom expiry date (for CUSTOM_DATE type or base date for FIXED_YEARS)
  * @returns Date object or null for lifetime certifications
  */
 export function calculateExpiryDate(certificationName: string, customExpiryDate?: Date): Date | null {
@@ -90,9 +90,10 @@ export function calculateExpiryDate(certificationName: string, customExpiryDate?
   }
   
   if (validityRule.type === 'FIXED_YEARS' && validityRule.years) {
-    const currentDate = new Date();
-    const expiryDate = new Date(currentDate);
-    expiryDate.setFullYear(currentDate.getFullYear() + validityRule.years);
+    // Use the original date from Excel file if provided, otherwise use current date
+    const baseDate = customExpiryDate || new Date();
+    const expiryDate = new Date(baseDate);
+    expiryDate.setFullYear(baseDate.getFullYear() + validityRule.years);
     return expiryDate;
   }
   

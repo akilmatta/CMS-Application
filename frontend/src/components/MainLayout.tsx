@@ -1,12 +1,11 @@
 import { ReactNode } from 'react'
-import { NavLink, useLocation } from 'react-router-dom'
+import { NavLink } from 'react-router-dom'
 
 interface MainLayoutProps {
   children: ReactNode
 }
 
 const MainLayout = ({ children }: MainLayoutProps) => {
-  const location = useLocation()
 
   const menuItems = [
     { path: '/', label: 'Dashboard', icon: '📊' },

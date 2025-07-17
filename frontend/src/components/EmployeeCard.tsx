@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { certificationAPI, formatDate, getStatusColor, getValidityTypeColor, getStatusText } from '../services/api'
 import CertificationForm from './CertificationForm'
 
@@ -25,6 +25,16 @@ interface EmployeeCardProps {
 const EmployeeCard = ({ employee, onEmployeeUpdate, onEmployeeDelete }: EmployeeCardProps) => {
   const [showAddCertification, setShowAddCertification] = useState(false)
   const [editingCertification, setEditingCertification] = useState<string | null>(null)
+  const [currentTime, setCurrentTime] = useState(new Date())
+
+  // Update current time every minute to refresh status badges
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date())
+    }, 60000) // Update every minute
+
+    return () => clearInterval(timer)
+  }, [])
 
   const handleDeleteCertification = async (certificationId: string) => {
     if (window.confirm('Are you sure you want to delete this certification?')) {
@@ -88,8 +98,8 @@ const EmployeeCard = ({ employee, onEmployeeUpdate, onEmployeeDelete }: Employee
               <div className="flex-1">
                 <div className="flex items-center space-x-3">
                   <span className="font-medium">{certification.name}</span>
-                  <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(certification.expiryDate)}`}>
-                    {getStatusText(certification.expiryDate)}
+                  <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(certification.expiryDate, currentTime)}`}>
+                    {getStatusText(certification.expiryDate, currentTime)}
                   </span>
                   {certification.validityType && (
                     <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getValidityTypeColor(certification.validityType)}`}>

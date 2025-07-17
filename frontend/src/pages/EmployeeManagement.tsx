@@ -15,6 +15,12 @@ const EmployeeManagement = () => {
   const [searchTerm, setSearchTerm] = useState('')
   const [searchResults, setSearchResults] = useState<Employee[]>([])
   const [isSearching, setIsSearching] = useState(false)
+  const [searchFilters, setSearchFilters] = useState({
+    searchIn: 'all' as 'all' | 'employees' | 'certifications',
+    expiryStatus: 'all' as 'all' | 'expired' | 'expiring-soon' | 'valid' | 'lifetime',
+    validityType: 'all' as 'all' | 'LIFETIME' | 'FIXED_YEARS' | 'CUSTOM_DATE'
+  })
+  const [dashboardFilter, setDashboardFilter] = useState<'expiring-soon' | 'expired' | null>(null)
 
   // Fetch employees data
   const fetchEmployees = async () => {
@@ -85,18 +91,191 @@ const EmployeeManagement = () => {
     }
   }
 
-  // Handle search functionality
-  const handleSearch = () => {
-    if (!searchTerm.trim()) {
-      setSearchResults([])
-      setIsSearching(false)
-      return
+  // Handle filter changes
+  const handleFilterChange = (newFilters: any) => {
+    setSearchFilters(newFilters)
+    // Always call handleSearch, even if searchTerm is empty
+    handleSearch(newFilters)
+  }
+
+  // Enhanced search functionality
+  const handleSearch = (overrideFilters?: any) => {
+    const filters = overrideFilters || searchFilters
+    const searchLower = searchTerm.toLowerCase()
+    
+    // Different search behavior based on active tab
+    let filteredEmployees: Employee[] = []
+    
+    if (activeTab === 'list') {
+      // Simple search for employee list - only search employee names
+      filteredEmployees = employees.filter(employee =>
+        employee.name.toLowerCase().includes(searchLower)
+      )
+    } else if (activeTab === 'certifications') {
+      // Advanced search for certifications list - search across multiple fields
+      const matchingEmployees = employees.filter(employee => {
+        // Search in employee name
+        const nameMatch = employee.name.toLowerCase().includes(searchLower)
+        
+        // Search in certifications
+        const certificationMatch = employee.certifications.some(cert => {
+          const certNameMatch = cert.name.toLowerCase().includes(searchLower)
+          const validityTypeMatch = cert.validityType.toLowerCase().includes(searchLower)
+          const expiryDateMatch = cert.expiryDate ? 
+            new Date(cert.expiryDate).toLocaleDateString().includes(searchLower) : false
+          
+          return certNameMatch || validityTypeMatch || expiryDateMatch
+        })
+
+        // Apply search scope filter
+        let searchMatch = false
+        switch (filters.searchIn) {
+          case 'employees':
+            searchMatch = nameMatch
+            break
+          case 'certifications':
+            searchMatch = certificationMatch
+            break
+          case 'all':
+          default:
+            searchMatch = nameMatch || certificationMatch
+            break
+        }
+
+        // If search bar is empty, ignore searchMatch and just apply filters
+        if (!searchTerm.trim()) searchMatch = true
+
+        if (!searchMatch) return false
+
+        // Apply expiry status filter
+        const today = new Date()
+        const hasExpiredCerts = employee.certifications.some(cert => {
+          if (!cert.expiryDate) return false
+          return new Date(cert.expiryDate) < today
+        })
+        
+        const hasExpiringSoonCerts = employee.certifications.some(cert => {
+          if (!cert.expiryDate) return false
+          const expiry = new Date(cert.expiryDate)
+          const daysUntilExpiry = Math.ceil((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+          return daysUntilExpiry <= 30 && daysUntilExpiry >= 0
+        })
+        
+        const hasValidCerts = employee.certifications.some(cert => {
+          if (!cert.expiryDate) return false
+          return new Date(cert.expiryDate) > today
+        })
+        
+        const hasLifetimeCerts = employee.certifications.some(cert => !cert.expiryDate)
+
+        let expiryMatch = true
+        switch (filters.expiryStatus) {
+          case 'expired':
+            expiryMatch = hasExpiredCerts
+            break
+          case 'expiring-soon':
+            expiryMatch = hasExpiringSoonCerts
+            break
+          case 'valid':
+            expiryMatch = hasValidCerts
+            break
+          case 'lifetime':
+            expiryMatch = hasLifetimeCerts
+            break
+          case 'all':
+          default:
+            expiryMatch = true
+            break
+        }
+
+        if (!expiryMatch) return false
+
+        // Apply validity type filter
+        let validityMatch = true
+        if (filters.validityType !== 'all') {
+          validityMatch = employee.certifications.some(cert => 
+            cert.validityType === filters.validityType
+          )
+        }
+
+        return validityMatch
+      })
+
+      // Filter certifications within each matching employee
+      filteredEmployees = matchingEmployees.map(employee => {
+        const today = new Date()
+        
+        // Filter certifications based on search term and filters
+        const filteredCertifications = employee.certifications.filter(cert => {
+          // Check if certification matches search term
+          const certNameMatch = cert.name.toLowerCase().includes(searchLower)
+          const validityTypeMatch = cert.validityType.toLowerCase().includes(searchLower)
+          const expiryDateMatch = cert.expiryDate ? 
+            new Date(cert.expiryDate).toLocaleDateString().includes(searchLower) : false
+          
+          let searchMatch = false
+          switch (filters.searchIn) {
+            case 'employees':
+              // If searching only employees, show all certifications
+              searchMatch = true
+              break
+            case 'certifications':
+              searchMatch = certNameMatch || validityTypeMatch || expiryDateMatch
+              break
+            case 'all':
+            default:
+              searchMatch = certNameMatch || validityTypeMatch || expiryDateMatch
+              break
+          }
+
+          // If search bar is empty, ignore searchMatch and just apply filters
+          if (!searchTerm.trim()) searchMatch = true
+
+          if (!searchMatch) return false
+
+          // Apply expiry status filter
+          let expiryMatch = true
+          if (filters.expiryStatus !== 'all') {
+            if (!cert.expiryDate) {
+              expiryMatch = filters.expiryStatus === 'lifetime'
+            } else {
+              const expiry = new Date(cert.expiryDate)
+              const daysUntilExpiry = Math.ceil((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+              
+              switch (filters.expiryStatus) {
+                case 'expired':
+                  expiryMatch = expiry < today
+                  break
+                case 'expiring-soon':
+                  expiryMatch = daysUntilExpiry <= 30 && daysUntilExpiry >= 0
+                  break
+                case 'valid':
+                  expiryMatch = expiry > today
+                  break
+                case 'lifetime':
+                  expiryMatch = false // Already handled above
+                  break
+              }
+            }
+          }
+
+          if (!expiryMatch) return false
+
+          // Apply validity type filter
+          if (filters.validityType !== 'all') {
+            return cert.validityType === filters.validityType
+          }
+
+          return true
+        })
+
+        return {
+          ...employee,
+          certifications: filteredCertifications
+        }
+      }).filter(employee => employee.certifications.length > 0) // Only show employees with matching certifications
     }
 
-    setIsSearching(true)
-    const filteredEmployees = employees.filter(employee =>
-      employee.name.toLowerCase().includes(searchTerm.toLowerCase())
-    )
     setSearchResults(filteredEmployees)
     setIsSearching(false)
   }
@@ -146,9 +325,62 @@ const EmployeeManagement = () => {
     return { totalEmployees, totalCertifications, expiringSoon, expired }
   }
 
+  // Filter employees/certifications for dashboard filter
+  const getDashboardFilteredEmployees = () => {
+    if (!dashboardFilter) return searchResults.length > 0 ? searchResults : employees
+    const today = new Date()
+    if (dashboardFilter === 'expiring-soon') {
+      return (searchResults.length > 0 ? searchResults : employees)
+        .map(emp => ({
+          ...emp,
+          certifications: emp.certifications.filter(cert => {
+            if (!cert.expiryDate) return false
+            const expiry = new Date(cert.expiryDate)
+            const daysUntilExpiry = Math.ceil((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+            return daysUntilExpiry <= 30 && daysUntilExpiry >= 0
+          })
+        }))
+        .filter(emp => emp.certifications.length > 0)
+    }
+    if (dashboardFilter === 'expired') {
+      return (searchResults.length > 0 ? searchResults : employees)
+        .map(emp => ({
+          ...emp,
+          certifications: emp.certifications.filter(cert => {
+            if (!cert.expiryDate) return false
+            const expiry = new Date(cert.expiryDate)
+            return expiry < today
+          })
+        }))
+        .filter(emp => emp.certifications.length > 0)
+    }
+    return searchResults.length > 0 ? searchResults : employees
+  }
+
+  // Helper to set dashboard filter and go to certifications tab
+  const handleDashboardCardClick = (expiryStatus: 'expiring-soon' | 'expired') => {
+    setActiveTab('certifications')
+    const newFilters = {
+      ...searchFilters,
+      expiryStatus: expiryStatus as 'expired' | 'expiring-soon',
+    }
+    setSearchFilters(newFilters)
+    handleSearch(newFilters)
+  }
+
   useEffect(() => {
     fetchEmployees()
   }, [])
+
+  // Auto-trigger search when switching to certifications tab with expiring-soon or expired filter
+  useEffect(() => {
+    if (
+      activeTab === 'certifications' &&
+      (searchFilters.expiryStatus === 'expiring-soon' || searchFilters.expiryStatus === 'expired')
+    ) {
+      handleSearch()
+    }
+  }, [activeTab, searchFilters.expiryStatus])
 
   const stats = getDashboardStats()
 
@@ -158,7 +390,10 @@ const EmployeeManagement = () => {
         <h1 className="text-3xl font-bold text-gray-900 mb-4">Employee Management</h1>
         
         {/* Employee Navigation */}
-        <EmployeeNavbar activeTab={activeTab} onTabChange={setActiveTab} />
+        <EmployeeNavbar activeTab={activeTab} onTabChange={tab => {
+          setActiveTab(tab)
+          setDashboardFilter(null) // Clear dashboard filter when switching tabs
+        }} />
 
         {/* Tab Content */}
         {activeTab === 'dashboard' && (
@@ -189,7 +424,12 @@ const EmployeeManagement = () => {
                 </div>
               </div>
               
-              <div className="bg-yellow-50 p-6 rounded-lg">
+              {/* Expiring Soon Card - clickable */}
+              <button
+                className="bg-yellow-50 p-6 rounded-lg text-left focus:outline-none focus:ring-2 focus:ring-yellow-400"
+                onClick={() => handleDashboardCardClick('expiring-soon')}
+                style={{ cursor: 'pointer' }}
+              >
                 <div className="flex items-center">
                   <div className="p-2 bg-yellow-100 rounded-lg">
                     <span className="text-2xl">⚠️</span>
@@ -199,9 +439,14 @@ const EmployeeManagement = () => {
                     <p className="text-2xl font-bold text-yellow-900">{stats.expiringSoon}</p>
                   </div>
                 </div>
-              </div>
+              </button>
               
-              <div className="bg-red-50 p-6 rounded-lg">
+              {/* Expired Card - clickable */}
+              <button
+                className="bg-red-50 p-6 rounded-lg text-left focus:outline-none focus:ring-2 focus:ring-red-400"
+                onClick={() => handleDashboardCardClick('expired')}
+                style={{ cursor: 'pointer' }}
+              >
                 <div className="flex items-center">
                   <div className="p-2 bg-red-100 rounded-lg">
                     <span className="text-2xl">❌</span>
@@ -211,7 +456,7 @@ const EmployeeManagement = () => {
                     <p className="text-2xl font-bold text-red-900">{stats.expired}</p>
                   </div>
                 </div>
-              </div>
+              </button>
             </div>
 
             {/* File Upload Section */}
@@ -261,7 +506,7 @@ const EmployeeManagement = () => {
               </button>
             </div>
 
-            {/* Search Section */}
+            {/* Search Section - Simple search for employee list */}
             <SearchBar
               searchTerm={searchTerm}
               onSearchChange={handleSearchInputChange}
@@ -273,7 +518,8 @@ const EmployeeManagement = () => {
               onKeyPress={handleSearchKeyPress}
               isSearching={isSearching}
               hasResults={searchResults.length > 0}
-              placeholder="Search for an employee..."
+              placeholder="Search employee names..."
+              searchMode="simple"
             />
             
             {/* Search Results Summary */}
@@ -315,6 +561,21 @@ const EmployeeManagement = () => {
               </div>
             )}
 
+            {/* Dashboard Filter Indicator & Clear Button */}
+            {dashboardFilter && (
+              <div className="flex items-center mb-2">
+                <span className="text-sm bg-blue-100 text-blue-800 px-3 py-1 rounded mr-2">
+                  Showing: {dashboardFilter === 'expiring-soon' ? 'Expiring Soon' : 'Expired'}
+                </span>
+                <button
+                  className="text-xs px-2 py-1 bg-gray-200 rounded hover:bg-gray-300"
+                  onClick={() => setDashboardFilter(null)}
+                >
+                  Clear Filter
+                </button>
+              </div>
+            )}
+
             {/* Employees List */}
             {loading ? (
               <div className="text-center py-8">
@@ -323,12 +584,15 @@ const EmployeeManagement = () => {
               </div>
             ) : (
               <div className="space-y-4">
-                {/* Show search results or all employees */}
-                {(searchResults.length > 0 ? searchResults : employees).length === 0 ? (
+                {/* Show search results or all employees, filtered by dashboardFilter if set */}
+                {getDashboardFilteredEmployees().length === 0 ? (
                   <div className="text-center py-8 text-gray-500">
-                    {searchResults.length > 0 
-                      ? `No employees found matching "${searchTerm}"`
-                      : 'No employees found. Add employees or upload an Excel file to get started.'
+                    {dashboardFilter
+                      ? `No employees found for ${dashboardFilter === 'expiring-soon' ? 'Expiring Soon' : 'Expired'} filter.`
+                      : (searchResults.length > 0 
+                        ? `No employees found matching "${searchTerm}"`
+                        : 'No employees found. Add employees or upload an Excel file to get started.'
+                      )
                     }
                   </div>
                 ) : (
@@ -348,7 +612,7 @@ const EmployeeManagement = () => {
                         </tr>
                       </thead>
                       <tbody className="bg-white divide-y divide-gray-200">
-                        {(searchResults.length > 0 ? searchResults : employees).map((employee) => (
+                        {getDashboardFilteredEmployees().map((employee) => (
                           <tr key={employee.id} className="hover:bg-gray-50">
                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                               {employee.name}
@@ -379,7 +643,7 @@ const EmployeeManagement = () => {
           <div className="space-y-4">
             <h3 className="text-lg font-semibold">Certifications List</h3>
             
-            {/* Search Section for Certifications */}
+            {/* Search Section for Certifications - Advanced search with filters */}
             <SearchBar
               searchTerm={searchTerm}
               onSearchChange={handleSearchInputChange}
@@ -391,13 +655,17 @@ const EmployeeManagement = () => {
               onKeyPress={handleSearchKeyPress}
               isSearching={isSearching}
               hasResults={searchResults.length > 0}
-              placeholder="Search for an employee to view their certifications..."
+              placeholder="Search employees, certifications, expiry dates..."
+              searchFilters={searchFilters}
+              onFilterChange={handleFilterChange}
+              showFilters={true}
+              searchMode="advanced"
             />
             
             {/* Search Results Summary */}
             {searchResults.length > 0 && (
               <div className="mt-2 text-sm text-gray-600 bg-blue-50 p-3 rounded">
-                Found {searchResults.length} employee(s) matching "{searchTerm}"
+                Found {searchResults.length} employee(s) with certifications matching "{searchTerm}"
               </div>
             )}
             

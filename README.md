@@ -81,7 +81,42 @@ CMS-application/
 - PostgreSQL database
 - npm or yarn
 
-### Backend Setup
+### Quick Setup (Recommended)
+
+1. **Run the setup script** (Windows PowerShell):
+   ```powershell
+   .\setup-project.ps1
+   ```
+
+2. **Create environment file**:
+   Create a `.env` file in the `backend` directory:
+   ```env
+   DATABASE_URL="postgresql://username:password@localhost:5432/cms_db"
+   PORT=5000
+   NODE_ENV=development
+   ```
+
+3. **Set up database**:
+   ```bash
+   cd backend
+   npm run db:generate
+   npm run db:push
+   ```
+
+4. **Start development servers**:
+   ```bash
+   # Terminal 1 - Backend
+   cd backend
+   npm run dev
+   
+   # Terminal 2 - Frontend
+   cd frontend
+   npm run dev
+   ```
+
+### Manual Setup
+
+#### Backend Setup
 
 1. **Navigate to backend directory**:
    ```bash
@@ -95,9 +130,10 @@ CMS-application/
 
 3. **Set up environment variables**:
    Create a `.env` file in the backend directory:
-   ```
+   ```env
    DATABASE_URL="postgresql://username:password@localhost:5432/cms_db"
    PORT=5000
+   NODE_ENV=development
    ```
 
 4. **Set up database**:

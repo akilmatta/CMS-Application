@@ -135,6 +135,33 @@ const CertificationForm = ({
     setShowSuggestions(false)
   }
 
+  // Function to calculate expiry date based on validity type
+  const calculateExpiryDate = (validityType: 'LIFETIME' | 'FIXED_YEARS' | 'CUSTOM_DATE', validYears?: number) => {
+    switch (validityType) {
+      case 'LIFETIME':
+        return ''
+      case 'FIXED_YEARS':
+        // Don't auto-calculate - preserve the original date from Excel
+        // The backend should have already calculated this correctly
+        return formData.expiryDate
+      case 'CUSTOM_DATE':
+        // Keep existing date or return empty
+        return formData.expiryDate
+      default:
+        return ''
+    }
+  }
+
+  // Handle validity type change - preserve original expiry date
+  const handleValidityTypeChange = (newValidityType: 'LIFETIME' | 'FIXED_YEARS' | 'CUSTOM_DATE') => {
+    setFormData(prev => ({ 
+      ...prev, 
+      validityType: newValidityType,
+      // Only clear expiry date for LIFETIME, otherwise preserve the original date
+      expiryDate: newValidityType === 'LIFETIME' ? '' : prev.expiryDate
+    }))
+  }
+
   const filteredSuggestions = suggestions.filter(suggestion =>
     suggestion.toLowerCase().includes(formData.name.toLowerCase())
   ).slice(0, 5)
@@ -209,11 +236,7 @@ const CertificationForm = ({
                 name="validity-type"
                 value="LIFETIME"
                 checked={formData.validityType === 'LIFETIME'}
-                onChange={(e) => setFormData(prev => ({ 
-                  ...prev, 
-                  validityType: e.target.value as 'LIFETIME',
-                  expiryDate: ''
-                }))}
+                onChange={(e) => handleValidityTypeChange('LIFETIME')}
                 className="mr-2"
               />
               <span className="text-sm">Lifetime</span>
@@ -224,10 +247,7 @@ const CertificationForm = ({
                 name="validity-type"
                 value="FIXED_YEARS"
                 checked={formData.validityType === 'FIXED_YEARS'}
-                onChange={(e) => setFormData(prev => ({ 
-                  ...prev, 
-                  validityType: e.target.value as 'FIXED_YEARS'
-                }))}
+                onChange={(e) => handleValidityTypeChange('FIXED_YEARS')}
                 className="mr-2"
               />
               <span className="text-sm">Fixed Years</span>
@@ -238,10 +258,7 @@ const CertificationForm = ({
                 name="validity-type"
                 value="CUSTOM_DATE"
                 checked={formData.validityType === 'CUSTOM_DATE'}
-                onChange={(e) => setFormData(prev => ({ 
-                  ...prev, 
-                  validityType: e.target.value as 'CUSTOM_DATE'
-                }))}
+                onChange={(e) => handleValidityTypeChange('CUSTOM_DATE')}
                 className="mr-2"
               />
               <span className="text-sm">Custom Date</span>
@@ -260,20 +277,11 @@ const CertificationForm = ({
               value={formData.validYears || ''}
               onChange={(e) => {
                 const years = e.target.value ? parseInt(e.target.value) : undefined
-                let newExpiryDate = formData.expiryDate
-                
-                if (years) {
-                  // Recalculate expiry date based on new years
-                  const currentDate = new Date()
-                  const newDate = new Date(currentDate)
-                  newDate.setFullYear(currentDate.getFullYear() + years)
-                  newExpiryDate = newDate.toISOString().split('T')[0]
-                }
                 
                 setFormData(prev => ({ 
                   ...prev, 
-                  validYears: years,
-                  expiryDate: newExpiryDate
+                  validYears: years
+                  // Don't auto-update expiry date - preserve the original calculation
                 }))
               }}
               className="w-20 px-2 py-1 border border-gray-300 rounded text-sm"
@@ -302,6 +310,14 @@ const CertificationForm = ({
         {validation?.calculatedExpiryDate && formData.validityType !== 'LIFETIME' && (
           <div className="text-sm text-gray-600 bg-blue-50 p-2 rounded">
             Calculated expiry date: {new Date(validation.calculatedExpiryDate).toLocaleDateString()}
+          </div>
+        )}
+
+        {/* Original expiry date indicator */}
+        {formData.validityType === 'FIXED_YEARS' && formData.expiryDate && formData.validYears && (
+          <div className="text-sm text-blue-600 bg-blue-50 p-2 rounded">
+            📅 Original expiry date: {new Date(formData.expiryDate).toLocaleDateString()} 
+            (calculated from Excel upload based on {formData.validYears} years validity rule)
           </div>
         )}
 

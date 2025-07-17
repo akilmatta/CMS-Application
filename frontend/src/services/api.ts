@@ -1,7 +1,10 @@
 import axios from 'axios'
 
 // Base API configuration
-const API_BASE_URL = '/api/employees'
+const API_BASE_URL = 'http://localhost:5000/api'
+const EMPLOYEES_URL = `${API_BASE_URL}/employees`
+const CERTIFICATIONS_URL = `${API_BASE_URL}/certifications`
+const VALIDITY_URL = `${API_BASE_URL}`
 
 // Types
 export interface Certification {
@@ -62,26 +65,26 @@ export interface CertificationValidation {
 export const employeeAPI = {
   // Get all employees
   getEmployees: async (): Promise<Employee[]> => {
-    const response = await axios.get(API_BASE_URL)
+    const response = await axios.get(EMPLOYEES_URL)
     return response.data
   },
 
   // Create employee
   createEmployee: async (name: string): Promise<Employee> => {
-    const response = await axios.post(API_BASE_URL, { name })
+    const response = await axios.post(EMPLOYEES_URL, { name })
     return response.data
   },
 
   // Delete employee
   deleteEmployee: async (id: string): Promise<void> => {
-    await axios.delete(`${API_BASE_URL}/${id}`)
+    await axios.delete(`${EMPLOYEES_URL}/${id}`)
   },
 
   // Upload Excel file
   uploadExcel: async (file: File): Promise<any> => {
     const formData = new FormData()
     formData.append('file', file)
-    const response = await axios.post(`${API_BASE_URL}/upload`, formData, {
+    const response = await axios.post(`${EMPLOYEES_URL}/upload`, formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
@@ -100,7 +103,7 @@ export const certificationAPI = {
     validityType?: 'LIFETIME' | 'FIXED_YEARS' | 'CUSTOM_DATE'
     validYears?: number
   }): Promise<Certification> => {
-    const response = await axios.post(`${API_BASE_URL}/certifications`, data)
+    const response = await axios.post(CERTIFICATIONS_URL, data)
     return response.data
   },
 
@@ -111,13 +114,13 @@ export const certificationAPI = {
     validityType?: 'LIFETIME' | 'FIXED_YEARS' | 'CUSTOM_DATE'
     validYears?: number
   }): Promise<Certification> => {
-    const response = await axios.put(`${API_BASE_URL}/certifications/${id}`, data)
+    const response = await axios.put(`${CERTIFICATIONS_URL}/${id}`, data)
     return response.data
   },
 
   // Delete certification
   deleteCertification: async (id: string): Promise<void> => {
-    await axios.delete(`${API_BASE_URL}/certifications/${id}`)
+    await axios.delete(`${CERTIFICATIONS_URL}/${id}`)
   }
 }
 
@@ -129,19 +132,19 @@ export const validityMapAPI = {
     certificationNames: string[]
     totalCertifications: number
   }> => {
-    const response = await axios.get(`${API_BASE_URL}/validity-map`)
+    const response = await axios.get(`${VALIDITY_URL}/validity-map`)
     return response.data
   },
 
   // Get validity statistics
   getValidityStatistics: async (): Promise<ValidityStatistics> => {
-    const response = await axios.get(`${API_BASE_URL}/validity-statistics`)
+    const response = await axios.get(`${VALIDITY_URL}/validity-statistics`)
     return response.data
   },
 
   // Validate certification name
   validateCertificationName: async (name: string): Promise<CertificationValidation> => {
-    const response = await axios.get(`${API_BASE_URL}/validate-certification/${encodeURIComponent(name)}`)
+    const response = await axios.get(`${VALIDITY_URL}/validate-certification/${encodeURIComponent(name)}`)
     return response.data
   },
 
@@ -151,7 +154,7 @@ export const validityMapAPI = {
     validityType: 'LIFETIME' | 'FIXED_YEARS' | 'CUSTOM_DATE'
     validYears?: number
   }): Promise<BulkUpdateResult> => {
-    const response = await axios.post(`${API_BASE_URL}/bulk-update-employee-certifications`, data)
+    const response = await axios.post(`${VALIDITY_URL}/bulk-update-employee-certifications`, data)
     return response.data
   },
 
@@ -161,7 +164,7 @@ export const validityMapAPI = {
     validityType: 'LIFETIME' | 'FIXED_YEARS' | 'CUSTOM_DATE'
     validYears?: number
   }): Promise<BulkUpdateResult> => {
-    const response = await axios.post(`${API_BASE_URL}/bulk-update-certifications-by-name`, data)
+    const response = await axios.post(`${VALIDITY_URL}/bulk-update-certifications-by-name`, data)
     return response.data
   }
 }
@@ -172,10 +175,10 @@ export const formatDate = (dateString: string | null): string => {
   return new Date(dateString).toLocaleDateString()
 }
 
-export const getStatusColor = (expiryDate: string | null): string => {
+export const getStatusColor = (expiryDate: string | null, currentDate?: Date): string => {
   if (!expiryDate) return 'bg-purple-100 text-purple-800' // Lifetime
   
-  const today = new Date()
+  const today = currentDate || new Date()
   const expiry = new Date(expiryDate)
   const daysUntilExpiry = Math.ceil((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
 
@@ -197,10 +200,10 @@ export const getValidityTypeColor = (validityType: 'LIFETIME' | 'FIXED_YEARS' | 
   }
 }
 
-export const getStatusText = (expiryDate: string | null): string => {
+export const getStatusText = (expiryDate: string | null, currentDate?: Date): string => {
   if (!expiryDate) return 'Lifetime'
   
-  const today = new Date()
+  const today = currentDate || new Date()
   const expiry = new Date(expiryDate)
   const daysUntilExpiry = Math.ceil((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
 

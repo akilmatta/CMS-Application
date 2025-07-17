@@ -26,9 +26,9 @@ router.delete('/employees/:id', deleteEmployee);
 router.post('/employees/upload', uploadMiddleware.single('file'), uploadExcel);
 
 // Certification CRUD operations
-router.post('/employees/certifications', addCertification);
-router.put('/employees/certifications/:id', updateCertification);
-router.delete('/employees/certifications/:id', deleteCertification);
+router.post('/certifications', addCertification);
+router.put('/certifications/:id', updateCertification);
+router.delete('/certifications/:id', deleteCertification);
 
 // Validity map endpoints
 router.get('/validity-map', getValidityMap);

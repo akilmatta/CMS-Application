@@ -321,32 +321,18 @@ export const updateCertification = async (req: Request, res: Response) => {
     }
 
     const updateData: any = {};
+    let shouldRecalculateExpiry = false;
+    let newCertificationName = currentCertification.name;
     
     if (name) {
       const trimmedName = name.trim();
       updateData.name = trimmedName;
+      newCertificationName = trimmedName;
       
-      // If name is changing, recalculate validity based on new name
+      // If name is changing, we need to recalculate
       if (trimmedName !== currentCertification.name) {
-        const calculatedExpiryDate = calculateExpiryDate(trimmedName, expiryDate ? new Date(expiryDate) : undefined);
-        const calculatedValidityType = getValidityType(trimmedName);
-        const calculatedValidYears = getValidYears(trimmedName);
-        
-        updateData.expiryDate = calculatedExpiryDate;
-        updateData.validityType = validityType || calculatedValidityType;
-        
-        if (calculatedValidYears) {
-          updateData.validYears = calculatedValidYears;
-        }
+        shouldRecalculateExpiry = true;
       }
-    }
-    
-    if (expiryDate && !name) {
-      const parsedDate = new Date(expiryDate);
-      if (isNaN(parsedDate.getTime())) {
-        return res.status(400).json({ error: 'Invalid date format' });
-      }
-      updateData.expiryDate = parsedDate;
     }
 
     if (validityType) {
@@ -356,6 +342,11 @@ export const updateCertification = async (req: Request, res: Response) => {
         return res.status(400).json({ error: 'Invalid validity type' });
       }
       updateData.validityType = validityType;
+      
+      // If validity type is changing, we need to recalculate expiry date
+      if (validityType !== currentCertification.validityType) {
+        shouldRecalculateExpiry = true;
+      }
     }
 
     if (validYears !== undefined) {
@@ -364,6 +355,49 @@ export const updateCertification = async (req: Request, res: Response) => {
         return res.status(400).json({ error: 'Valid years must be between 1 and 50 for FIXED_YEARS type' });
       }
       updateData.validYears = validYears;
+      
+      // If valid years is changing for FIXED_YEARS type, we need to recalculate
+      if (validYears !== currentCertification.validYears && 
+          (validityType === 'FIXED_YEARS' || currentCertification.validityType === 'FIXED_YEARS')) {
+        shouldRecalculateExpiry = true;
+      }
+    }
+
+    // Recalculate expiry date if needed
+    if (shouldRecalculateExpiry) {
+      const finalValidityType = validityType || currentCertification.validityType;
+      const finalValidYears = validYears !== undefined ? validYears : currentCertification.validYears;
+      
+      if (finalValidityType === 'LIFETIME') {
+        updateData.expiryDate = null;
+      } else if (finalValidityType === 'FIXED_YEARS' && finalValidYears) {
+        // Calculate from current date for FIXED_YEARS
+        const currentDate = new Date();
+        const calculatedExpiryDate = new Date(currentDate);
+        calculatedExpiryDate.setFullYear(currentDate.getFullYear() + finalValidYears);
+        updateData.expiryDate = calculatedExpiryDate;
+      } else if (finalValidityType === 'CUSTOM_DATE') {
+        // For CUSTOM_DATE, use the provided expiry date or keep existing
+        if (expiryDate) {
+          const parsedDate = new Date(expiryDate);
+          if (isNaN(parsedDate.getTime())) {
+            return res.status(400).json({ error: 'Invalid date format' });
+          }
+          updateData.expiryDate = parsedDate;
+        }
+        // If no expiry date provided, keep the existing one
+      } else {
+        // Fallback: try to calculate based on certification name
+        const calculatedExpiryDate = calculateExpiryDate(newCertificationName, expiryDate ? new Date(expiryDate) : undefined);
+        updateData.expiryDate = calculatedExpiryDate;
+      }
+    } else if (expiryDate && !name) {
+      // Only update expiry date directly if no recalculation is needed
+      const parsedDate = new Date(expiryDate);
+      if (isNaN(parsedDate.getTime())) {
+        return res.status(400).json({ error: 'Invalid date format' });
+      }
+      updateData.expiryDate = parsedDate;
     }
 
     const certification = await prisma.certification.update({
