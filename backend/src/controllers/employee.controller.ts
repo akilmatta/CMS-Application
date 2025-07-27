@@ -10,6 +10,8 @@ import {
   getAllCertificationNames
 } from '../utils/certificationValidityMap';
 import { certificationValidityService } from '../utils/certificationValidityService';
+import * as XLSX from 'xlsx';
+import { cloudStorageService } from '../services/cloudStorage';
 
 export const uploadExcel = async (req: Request, res: Response) => {
   try {
@@ -57,7 +59,10 @@ export const uploadExcel = async (req: Request, res: Response) => {
         console.log('Creating new employee');
         employee = await prisma.employee.create({
           data: {
-            name: normalizedEmployee.employeeName
+            name: normalizedEmployee.employeeName,
+            email: `${normalizedEmployee.employeeName.toLowerCase().replace(/\s+/g, '.')}@company.com`,
+            role: 'FOREMAN',
+            firebaseUid: `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
           },
           include: {
             certifications: true
@@ -179,21 +184,33 @@ export const getEmployees = async (req: Request, res: Response) => {
     res.json(employees);
   } catch (error) {
     console.error('Get employees error:', error);
-    res.status(500).json({ error: 'Failed to fetch employees' });
+    res.status(500).json({ 
+      error: 'Failed to fetch employees',
+      details: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined
+    });
   }
 };
 
 export const createEmployee = async (req: Request, res: Response) => {
   try {
-    const { name } = req.body;
+    const { name, email, role } = req.body;
 
     if (!name || typeof name !== 'string' || name.trim() === '') {
       return res.status(400).json({ error: 'Employee name is required' });
     }
 
+    // Generate default values for required fields if not provided
+    const employeeEmail = email || `${name.trim().toLowerCase().replace(/\s+/g, '.')}@company.com`;
+    const employeeRole = role || 'FOREMAN';
+    const firebaseUid = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
     const employee = await prisma.employee.create({
       data: {
-        name: name.trim()
+        name: name.trim(),
+        email: employeeEmail,
+        role: employeeRole,
+        firebaseUid: firebaseUid
       },
       include: {
         certifications: true
@@ -228,6 +245,38 @@ export const deleteEmployee = async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Delete employee error:', error);
     res.status(500).json({ error: 'Failed to delete employee' });
+  }
+};
+
+export const updateEmployeeRole = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { role } = req.body;
+
+    if (!role || !['HEAD_OFFICE', 'SUPERVISOR', 'FOREMAN', 'HSE', 'ELECTRICAL'].includes(role)) {
+      return res.status(400).json({ error: 'Valid role is required' });
+    }
+
+    const employee = await prisma.employee.findUnique({
+      where: { id }
+    });
+
+    if (!employee) {
+      return res.status(404).json({ error: 'Employee not found' });
+    }
+
+    const updatedEmployee = await prisma.employee.update({
+      where: { id },
+      data: { role },
+      include: {
+        certifications: true
+      }
+    });
+
+    res.json(updatedEmployee);
+  } catch (error) {
+    console.error('Update employee role error:', error);
+    res.status(500).json({ error: 'Failed to update employee role' });
   }
 };
 
@@ -537,5 +586,371 @@ export const validateCertificationName = async (req: Request, res: Response) => 
   } catch (error) {
     console.error('Validate certification name error:', error);
     res.status(500).json({ error: 'Failed to validate certification name' });
+  }
+};
+
+// New employee-specific endpoints
+export const getEmployeeActivity = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    
+    // TODO: Add authentication check to ensure user can only access their own data
+    // const currentUserId = req.user?.id;
+    // if (currentUserId !== id && req.user?.role !== 'ADMIN') {
+    //   return res.status(403).json({ error: 'Access denied' });
+    // }
+
+    // Get recent activity for the employee
+    const recentActivity = await prisma.$transaction([
+      // Recent certifications
+      prisma.certification.findMany({
+        where: { employeeId: id },
+        orderBy: { updatedAt: 'desc' },
+        take: 10,
+        select: {
+          id: true,
+          name: true,
+          updatedAt: true,
+          expiryDate: true,
+          validityType: true
+        }
+      }),
+      // Recent site assignments
+      prisma.siteEmployee.findMany({
+        where: { employeeId: id },
+        orderBy: { assignedAt: 'desc' },
+        take: 10,
+        select: {
+          id: true,
+          assignedAt: true,
+          site: {
+            select: {
+              id: true,
+              name: true,
+              location: true
+            }
+          }
+        }
+      }),
+      // Recent checklists
+      prisma.checklist.findMany({
+        where: { employeeId: id },
+        orderBy: { updatedAt: 'desc' },
+        take: 10,
+        select: {
+          id: true,
+          type: true,
+          status: true,
+          updatedAt: true,
+          completedAt: true,
+          site: {
+            select: {
+              id: true,
+              name: true
+            }
+          }
+        }
+      })
+    ]);
+
+    const [certifications, siteAssignments, checklists] = recentActivity;
+
+    // Combine and sort all activities by date
+    const allActivities = [
+      ...certifications.map((cert: any) => ({
+        type: 'certification',
+        id: cert.id,
+        title: `Certification ${cert.name} updated`,
+        description: `Certification ${cert.name} was updated`,
+        date: cert.updatedAt,
+        data: cert
+      })),
+      ...siteAssignments.map((assignment: any) => ({
+        type: 'site_assignment',
+        id: assignment.id,
+        title: `Assigned to ${assignment.site.name}`,
+        description: `Assigned to site: ${assignment.site.location}`,
+        date: assignment.assignedAt,
+        data: assignment
+      })),
+      ...checklists.map((checklist: any) => ({
+        type: 'checklist',
+        id: checklist.id,
+        title: `Checklist ${checklist.type} ${checklist.status.toLowerCase()}`,
+        description: `Checklist for ${checklist.site.name} was ${checklist.status.toLowerCase()}`,
+        date: checklist.updatedAt,
+        data: checklist
+      }))
+    ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+    res.json({
+      activities: allActivities.slice(0, 20), // Return last 20 activities
+      totalActivities: allActivities.length
+    });
+  } catch (error) {
+    console.error('Get employee activity error:', error);
+    res.status(500).json({ error: 'Failed to fetch employee activity' });
+  }
+};
+
+export const getEmployeeSites = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    
+    // TODO: Add authentication check to ensure user can only access their own data
+    // const currentUserId = req.user?.id;
+    // if (currentUserId !== id && req.user?.role !== 'ADMIN') {
+    //   return res.status(403).json({ error: 'Access denied' });
+    // }
+
+    // Get all sites assigned to the employee with task counts
+    const sitesWithTasks = await prisma.siteEmployee.findMany({
+      where: { employeeId: id },
+      include: {
+        site: {
+          include: {
+            checklists: {
+              where: { employeeId: id },
+              select: {
+                id: true,
+                status: true
+              }
+            }
+          }
+        }
+      }
+    });
+
+    const sitesData = sitesWithTasks.map(siteEmployee => {
+      const checklists = siteEmployee.site.checklists;
+      const pendingTasks = checklists.filter(c => c.status === 'PENDING').length;
+      const completedTasks = checklists.filter(c => c.status === 'COMPLETED').length;
+      
+      return {
+        id: siteEmployee.site.id,
+        name: siteEmployee.site.name,
+        location: siteEmployee.site.location,
+        assignedAt: siteEmployee.assignedAt,
+        taskCounts: {
+          total: checklists.length,
+          pending: pendingTasks,
+          completed: completedTasks
+        }
+      };
+    });
+
+    res.json({
+      sites: sitesData,
+      totalSites: sitesData.length,
+      totalTasks: sitesData.reduce((sum, site) => sum + site.taskCounts.total, 0)
+    });
+  } catch (error) {
+    console.error('Get employee sites error:', error);
+    res.status(500).json({ error: 'Failed to fetch employee sites' });
+  }
+};
+
+export const getEmployeeTasks = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    
+    // TODO: Add authentication check to ensure user can only access their own data
+    // const currentUserId = req.user?.id;
+    // if (currentUserId !== id && req.user?.role !== 'ADMIN') {
+    //   return res.status(403).json({ error: 'Access denied' });
+    // }
+
+    // Get all tasks (checklists) for the employee
+    const tasks = await prisma.checklist.findMany({
+      where: { employeeId: id },
+      include: {
+        site: {
+          select: {
+            id: true,
+            name: true,
+            location: true
+          }
+        }
+      },
+      orderBy: { updatedAt: 'desc' }
+    });
+
+    const tasksData = tasks.map(task => ({
+      id: task.id,
+      type: task.type,
+      status: task.status,
+      site: task.site,
+      createdAt: task.createdAt,
+      updatedAt: task.updatedAt,
+      completedAt: task.completedAt,
+      fileUrl: task.fileUrl
+    }));
+
+    const pendingTasks = tasksData.filter(task => task.status === 'PENDING');
+    const completedTasks = tasksData.filter(task => task.status === 'COMPLETED');
+
+    res.json({
+      tasks: tasksData,
+      pendingTasks,
+      completedTasks,
+      totalTasks: tasksData.length,
+      pendingCount: pendingTasks.length,
+      completedCount: completedTasks.length
+    });
+  } catch (error) {
+    console.error('Get employee tasks error:', error);
+    res.status(500).json({ error: 'Failed to fetch employee tasks' });
+  }
+}; 
+
+export const getEmployeeSiteTasks = async (req: Request, res: Response) => {
+  try {
+    const { id: employeeId, siteId } = req.params;
+    console.log('getEmployeeSiteTasks called with params:', req.params);
+    console.log('employeeId:', employeeId, 'siteId:', siteId);
+
+    // Validate employee exists
+    const employee = await prisma.employee.findUnique({
+      where: { id: employeeId }
+    });
+
+    if (!employee) {
+      return res.status(404).json({ error: 'Employee not found' });
+    }
+
+    // Validate site exists and employee is assigned to it
+    const siteEmployee = await prisma.siteEmployee.findFirst({
+      where: {
+        siteId: siteId,
+        employeeId: employeeId
+      },
+      include: {
+        site: true
+      }
+    });
+
+    if (!siteEmployee) {
+      return res.status(404).json({ error: 'Site not found or employee not assigned to this site' });
+    }
+
+    // Get all checklists/tasks for this employee at this site
+    const tasks = await prisma.checklist.findMany({
+      where: {
+        employeeId: employeeId,
+        siteId: siteId
+      },
+      include: {
+        site: {
+          select: {
+            id: true,
+            name: true,
+            location: true
+          }
+        },
+        employee: {
+          select: {
+            id: true,
+            name: true,
+            role: true
+          }
+        }
+      },
+      orderBy: {
+        updatedAt: 'desc'
+      }
+    });
+
+    // Calculate task statistics
+    const totalTasks = tasks.length;
+    const pendingTasks = tasks.filter((task: any) => task.status === 'PENDING').length;
+    const completedTasks = tasks.filter((task: any) => task.status === 'COMPLETED').length;
+
+    res.json({
+      site: siteEmployee.site,
+      tasks,
+      statistics: {
+        total: totalTasks,
+        pending: pendingTasks,
+        completed: completedTasks
+      }
+    });
+
+  } catch (error: any) {
+    console.error('Error fetching employee site tasks:', error);
+    res.status(500).json({ error: 'Failed to fetch site tasks' });
+  }
+}; 
+
+export const uploadEmployeeTaskFile = async (req: Request, res: Response) => {
+  try {
+    const { id: employeeId, taskId } = req.params;
+    
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    // Validate employee exists
+    const employee = await prisma.employee.findUnique({
+      where: { id: employeeId }
+    });
+
+    if (!employee) {
+      return res.status(404).json({ error: 'Employee not found' });
+    }
+
+    // Validate task exists and belongs to this employee
+    const task = await prisma.checklist.findFirst({
+      where: {
+        id: taskId,
+        employeeId: employeeId
+      }
+    });
+
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found or access denied' });
+    }
+
+    // Upload the file to cloud storage
+    console.log('Uploading employee task file...');
+    const uploadResult = await cloudStorageService.uploadFile(req.file, 'task-files');
+    console.log('File uploaded successfully:', uploadResult.fileUrl);
+
+    // Update the task with the uploaded file
+    const updatedTask = await prisma.checklist.update({
+      where: { id: taskId },
+      data: {
+        fileUrl: uploadResult.fileUrl, // Store the cloud storage URL
+        status: 'COMPLETED',
+        completedAt: new Date()
+      },
+      include: {
+        site: {
+          select: {
+            id: true,
+            name: true,
+            location: true
+          }
+        },
+        employee: {
+          select: {
+            id: true,
+            name: true,
+            role: true
+          }
+        }
+      }
+    });
+
+    console.log('Task updated with file URL:', updatedTask.fileUrl);
+
+    res.json({
+      message: 'File uploaded successfully',
+      task: updatedTask,
+      fileUrl: uploadResult.fileUrl
+    });
+
+  } catch (error: any) {
+    console.error('Error uploading employee task file:', error);
+    res.status(500).json({ error: 'Failed to upload file' });
   }
 }; 

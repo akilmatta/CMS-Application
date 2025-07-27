@@ -13,12 +13,30 @@ enum ValidityType {
   CUSTOM_DATE
 }
 
+enum Role {
+  HEAD_OFFICE
+  SUPERVISOR
+  FOREMAN
+  HSE
+  ELECTRICAL
+}
+
+enum ChecklistStatus {
+  PENDING
+  COMPLETED
+}
+
 model Employee {
-  id             String          @id @default(uuid())
-  name           String
-  certifications Certification[]
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
+  id              String          @id @default(uuid())
+  name            String
+  email           String          @unique
+  role            Role
+  firebaseUid     String          @unique
+  certifications  Certification[]
+  siteAssignments SiteEmployee[]
+  checklists      Checklist[]
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
 }
 
 model Certification {
@@ -31,4 +49,49 @@ model Certification {
   employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
+}
+
+model Site {
+  id         String         @id @default(uuid())
+  name       String
+  location   String
+  employees  SiteEmployee[]
+  checklists Checklist[]
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+}
+
+model SiteEmployee {
+  id         String   @id @default(uuid())
+  siteId     String
+  employeeId String
+  assignedAt DateTime @default(now())
+  site       Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+}
+
+model Checklist {
+  id          String          @id @default(uuid())
+  siteId      String
+  employeeId  String
+  type        String          // e.g., Safety, Daily Log
+  status      ChecklistStatus @default(PENDING)
+  completedAt DateTime?
+  fileUrl     String?
+  site        Site            @relation(fields: [siteId], references: [id])
+  employee    Employee        @relation(fields: [employeeId], references: [id])
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+}
+
+model ChecklistPdf {
+  id          String   @id @default(uuid())
+  name        String   // Display name for the checklist
+  fileUrl     String   // Firebase Storage URL
+  filePath    String   // Firebase Storage path for deletion
+  fileName    String   // Original filename
+  description String?  // Optional description
+  uploadedBy  String   // Who uploaded the file
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 } 

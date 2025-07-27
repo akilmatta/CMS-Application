@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
-import { employeeAPI, type Employee } from '../services/api'
+import { employeeAPI, type Employee, getRoleColor } from '../services/api'
 import EmployeeNavbar from '../components/EmployeeNavbar'
 import EmployeeCard from '../components/EmployeeCard'
 import SearchBar from '../components/SearchBar'
 import ValidityStatistics from '../components/ValidityStatistics'
+import EmployeeRoleModal from '../components/EmployeeRoleModal'
 
 const EmployeeManagement = () => {
   const [employees, setEmployees] = useState<Employee[]>([])
@@ -12,7 +13,11 @@ const EmployeeManagement = () => {
   const [activeTab, setActiveTab] = useState('dashboard')
   const [showAddEmployee, setShowAddEmployee] = useState(false)
   const [newEmployeeName, setNewEmployeeName] = useState('')
+  const [newEmployeeEmail, setNewEmployeeEmail] = useState('')
+  const [newEmployeeRole, setNewEmployeeRole] = useState<'HEAD_OFFICE' | 'SUPERVISOR' | 'FOREMAN' | 'HSE' | 'ELECTRICAL'>('FOREMAN')
   const [searchTerm, setSearchTerm] = useState('')
+  const [selectedEmployeeForRole, setSelectedEmployeeForRole] = useState<Employee | null>(null)
+  const [showRoleModal, setShowRoleModal] = useState(false)
   const [searchResults, setSearchResults] = useState<Employee[]>([])
   const [isSearching, setIsSearching] = useState(false)
   const [searchFilters, setSearchFilters] = useState({
@@ -27,11 +32,15 @@ const EmployeeManagement = () => {
     setLoading(true)
     try {
       console.log('Fetching employees from API')
+      console.log('API URL:', '/api/employees')
       const data = await employeeAPI.getEmployees()
       console.log('Employees response:', data)
+      console.log('Number of employees:', data.length)
       setEmployees(data)
     } catch (error: any) {
       console.error('Error fetching employees:', error)
+      console.error('Error details:', error.response?.data)
+      console.error('Error status:', error.response?.status)
     } finally {
       setLoading(false)
     }
@@ -70,8 +79,10 @@ const EmployeeManagement = () => {
     if (!newEmployeeName.trim()) return
 
     try {
-      await employeeAPI.createEmployee(newEmployeeName)
+      await employeeAPI.createEmployee(newEmployeeName, newEmployeeEmail || undefined, newEmployeeRole)
       setNewEmployeeName('')
+      setNewEmployeeEmail('')
+      setNewEmployeeRole('FOREMAN')
       setShowAddEmployee(false)
       await fetchEmployees()
     } catch (error) {
@@ -88,6 +99,27 @@ const EmployeeManagement = () => {
       setSearchResults(prev => prev.filter(emp => emp.id !== employeeId))
     } catch (error) {
       console.error('Error deleting employee:', error)
+    }
+  }
+
+  // Handle role editing
+  const handleEditRole = (employee: Employee) => {
+    setSelectedEmployeeForRole(employee)
+    setShowRoleModal(true)
+  }
+
+  // Handle role update
+  const handleUpdateRole = async (employeeId: string, role: string) => {
+    try {
+      await employeeAPI.updateEmployeeRole(employeeId, role)
+      await fetchEmployees()
+      // Update search results if the employee was in search results
+      setSearchResults(prev => prev.map(emp => 
+        emp.id === employeeId ? { ...emp, role: role as any } : emp
+      ))
+    } catch (error) {
+      console.error('Error updating employee role:', error)
+      throw error
     }
   }
 
@@ -533,30 +565,56 @@ const EmployeeManagement = () => {
             {showAddEmployee && (
               <div className="bg-gray-50 p-4 rounded-lg">
                 <h4 className="font-medium mb-2">Add New Employee</h4>
-                <div className="flex space-x-2">
-                  <input
-                    type="text"
-                    placeholder="Employee name"
-                    value={newEmployeeName}
-                    onChange={(e) => setNewEmployeeName(e.target.value)}
-                    className="flex-1 px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                  <button
-                    onClick={handleAddEmployee}
-                    disabled={!newEmployeeName.trim()}
-                    className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Add
-                  </button>
-                  <button
-                    onClick={() => {
-                      setShowAddEmployee(false)
-                      setNewEmployeeName('')
-                    }}
-                    className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700"
-                  >
-                    Cancel
-                  </button>
+                <div className="space-y-3">
+                  <div className="flex space-x-2">
+                    <input
+                      type="text"
+                      placeholder="Employee name *"
+                      value={newEmployeeName}
+                      onChange={(e) => setNewEmployeeName(e.target.value)}
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <select
+                      value={newEmployeeRole}
+                      onChange={(e) => setNewEmployeeRole(e.target.value as any)}
+                      className="px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="HEAD_OFFICE">Head Office</option>
+                      <option value="SUPERVISOR">Supervisor</option>
+                      <option value="FOREMAN">Foreman</option>
+                      <option value="HSE">HSE</option>
+                      <option value="ELECTRICAL">Electrical</option>
+                    </select>
+                  </div>
+                  <div>
+                    <input
+                      type="email"
+                      placeholder="Email (optional - will auto-generate if empty)"
+                      value={newEmployeeEmail}
+                      onChange={(e) => setNewEmployeeEmail(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div className="flex space-x-2">
+                    <button
+                      onClick={handleAddEmployee}
+                      disabled={!newEmployeeName.trim()}
+                      className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Add Employee
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowAddEmployee(false)
+                        setNewEmployeeName('')
+                        setNewEmployeeEmail('')
+                        setNewEmployeeRole('FOREMAN')
+                      }}
+                      className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700"
+                    >
+                      Cancel
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -604,6 +662,9 @@ const EmployeeManagement = () => {
                             Employee Name
                           </th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Role
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                             Certifications Count
                           </th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -616,6 +677,15 @@ const EmployeeManagement = () => {
                           <tr key={employee.id} className="hover:bg-gray-50">
                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                               {employee.name}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              <button
+                                onClick={() => handleEditRole(employee)}
+                                className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getRoleColor(employee.role)} hover:opacity-80 transition-opacity`}
+                                title="Click to edit role"
+                              >
+                                {employee.role}
+                              </button>
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                               {employee.certifications.length}
@@ -704,6 +774,18 @@ const EmployeeManagement = () => {
             <h3 className="text-lg font-semibold">Validity Statistics</h3>
             <ValidityStatistics />
           </div>
+        )}
+
+        {/* Role Edit Modal */}
+        {showRoleModal && selectedEmployeeForRole && (
+          <EmployeeRoleModal
+            employee={selectedEmployeeForRole}
+            onClose={() => {
+              setShowRoleModal(false)
+              setSelectedEmployeeForRole(null)
+            }}
+            onUpdate={handleUpdateRole}
+          />
         )}
       </div>
     </div>
